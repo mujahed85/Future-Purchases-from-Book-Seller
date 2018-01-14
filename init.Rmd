@@ -1,0 +1,48 @@
+---
+title: "Predicting Book Purchases"
+author: "Rush"
+date: "January 14, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading Libraries and data
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+orders <- read.csv("orders.csv")
+booktrain <- read.csv("booktrain.csv")
+```
+
+### Orders
+
+```{r}
+dim(orders)
+head(orders)
+str(orders)
+```
+
+### Booktrain
+
+```{r}
+dim(booktrain)
+head(booktrain)
+str(booktrain)
+```
+
+## Data Preprocessing
+
+```{r}
+orders <- mutate(orders, orddate = dmy(orddate), category = factor(category))
+```
+
+
+
