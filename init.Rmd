@@ -44,5 +44,107 @@ str(booktrain)
 orders <- mutate(orders, orddate = dmy(orddate), category = factor(category))
 ```
 
+### Partitioning into training and test sets
+ 
+```{r}
+length(orders$id)
+length(unique(orders$id))
+length(booktrain$id)
+length(unique(booktrain$id))
+```
+
+The id's in `booktrain.csv` are all unique. This is not the case with `orders.csv`.
+
+`orders.csv` has 33,355 unique ids. We need to partition the testing and training sets from `orders.csv`.
+
+```{r}
+train <- filter(orders, id %in% booktrain$id)
+test <- filter(orders, !(id %in% booktrain$id))
+```
+
+Looking at the number of unique ids in `train` and `test`
+
+```{r}
+length(unique(train$id))
+length(unique(test$id))
+```
+
+There are 87 ids in `booktrain` that are not present in `orders`.
+
+
+### EDA
+
+```{r}
+qplot(data = booktrain, x = logtarg)
+```
+
+How many customers responded?
+
+```{r}
+length(which(booktrain$logtarg>0))
+```
+
+Number of orders per customer in descending order.
+
+```{r}
+group_by(orders, id) %>% summarise(n = n_distinct(ordnum)) %>% arrange(desc(n))
+```
+
+
+## naive model
+
+```{r}
+naive_df_train <- group_by(train, id) %>%
+    summarise(tot_price = sum(price), tot_qty = sum(qty))
+
+merged_train = merge(naive_df_train, booktrain, by = 'id')
+
+naive_df_test <- group_by(test, id) %>%
+    summarise(tot_price = sum(price), tot_qty = sum(qty))
+```
+
+
+fitting the linear model
+
+```{r}
+naive_fit <- lm(logtarg ~ . -id, data = merged_train)
+summary(naive_fit)
+```
+
+prediction
+
+```{r}
+pred <- predict(naive_fit, newdata = naive_df_test)
+predictions <- data.frame(id = naive_df_test$id, yhat = pred)
+write.csv(predictions, file = 'naive.csv', row.names = FALSE)
+```
+
+
+
+## Feature creation
+
+total number of orders per id
+
+```{r}
+orders_ext <- orders
+
+orders_ext <- mutate(orders_ext, tot_orders = 
+                         group_by(orders_ext, id) %>% summarise(tot_orders = 
+                         n_distinct(ordnum)) %>% select(tot_orders))
+head(orders_ext)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
