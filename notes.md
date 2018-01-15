@@ -9,3 +9,16 @@ Further ideas for project:
 
 Big important step:
 logistic model + linear model
+
+
+More ideas:
+
+1. Further EDA on categories
+2. Super naive model (all response = 0)
+3. Feature selection (stepwise, lasso, etc.)
+4. All possible interactions
+5. More features ?
+
+
+For super later:
+- XGBoost
