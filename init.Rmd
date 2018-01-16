@@ -310,7 +310,8 @@ pred_logistic_ajit_train <- predict(logfit, newdata = merged_train_adv,
 predictions_ajit_train <- data.frame(id = merged_train_adv$id, 
                                yhat = 
                                    pred_linear_ajit_train*pred_logistic_ajit_train, 
-                               logtarg = merged_train_adv$logtarg)
+                               logtarg = merged_train_adv$logtarg, 
+                               prob = pred_logistic_ajit_train)
 
 write.csv(predictions_ajit_train, file = 'ajit_training_predictions.csv', row.names = FALSE)
 ```
