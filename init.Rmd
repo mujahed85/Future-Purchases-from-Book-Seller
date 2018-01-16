@@ -300,6 +300,20 @@ predictions_ajit <- data.frame(id = test_adv$id,
 write.csv(predictions_ajit, file = 'ajit.csv', row.names = FALSE)
 ```
 
+#### Prediction using Ajit on training data
+
+```{r}
+pred_linear_ajit_train <- predict(ajit_fit, newdata = merged_train_adv)
+pred_logistic_ajit_train <- predict(logfit, newdata = merged_train_adv, 
+                                    type="response")
+
+predictions_ajit_train <- data.frame(id = merged_train_adv$id, 
+                               yhat = 
+                                   pred_linear_ajit_train*pred_logistic_ajit_train, 
+                               logtarg = merged_train_adv$logtarg)
+
+write.csv(predictions_ajit_train, file = 'ajit_training_predictions.csv', row.names = FALSE)
+```
 
 
 ## Cross validation for Ajit's method
@@ -423,4 +437,51 @@ for(i in 0:9){
 
 mean(mod_results)
 ```
+
+
+
+## Cross validation super naive model
+
+```{r}
+# set.seed(2018-1-16)
+merged_train_adv <- merged_train_adv[sample(1:nrow(merged_train_adv)), ]
+rows <- nrow(merged_train_adv)/10
+
+mod_results <- c()
+
+for(i in 0:9){
+    
+    merged_k <- merged_train_adv[-((floor(i*rows)+1):(floor((i+1)*rows))),]
+        
+    merged_train_logistic_k <- mutate(merged_k, 
+                                responded = ifelse(logtarg>0, 1, 0)) %>% 
+        select(-logtarg)
+
+    logfit_k <- glm(responded ~ .-id, data = merged_train_logistic_k, 
+                    family = binomial)
+    
+    linear_k <- lm(logtarg ~ .-id, data = merged_k)
+    
+    test_merged_k <- merged_train_adv[(floor(i*rows)+1):(floor((i+1)*rows)),]
+    
+    pred_linear_k <- predict(linear_k, newdata = test_merged_k)
+    pred_logistic_k <- predict(logfit_k, newdata = test_merged_k, type="response")
+
+    predictions_k <- data.frame(id = test_merged_k$id, 
+                               yhat = pred_linear_k*pred_logistic_k*0)
+    
+    error_k <- sum((test_merged_k$logtarg-predictions_k$yhat)^2)/nrow(test_merged_k)
+    error_k <- sqrt(error_k)
+    
+    mod_results <- c(mod_results, error_k)
+}
+
+mean(mod_results)
+```
+
+
+
+
+
+
 
