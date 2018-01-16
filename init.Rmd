@@ -99,7 +99,7 @@ group_by(orders, id) %>% summarise(n = n_distinct(ordnum)) %>% arrange(desc(n))
 naive_df_train <- group_by(train, id) %>%
     summarise(tot_price = sum(price), tot_qty = sum(qty))
 
-merged_train = merge(naive_df_train, booktrain, by = 'id')
+merged_train_naive = merge(naive_df_train, booktrain, by = 'id')
 
 naive_df_test <- group_by(test, id) %>%
     summarise(tot_price = sum(price), tot_qty = sum(qty))
@@ -109,7 +109,7 @@ naive_df_test <- group_by(test, id) %>%
 fitting the linear model
 
 ```{r}
-naive_fit <- lm(logtarg ~ . -id, data = merged_train)
+naive_fit <- lm(logtarg ~ . -id, data = merged_train_naive)
 summary(naive_fit)
 ```
 
@@ -124,6 +124,15 @@ write.csv(predictions, file = 'naive.csv', row.names = FALSE)
 
 
 ## Feature creation
+
+### Removing bad entries
+
+```{r}
+# removing zero priced purchases
+# orders <- filter(orders, price != 0)
+
+```
+
 
 ### Creating aggregated features
 
@@ -229,6 +238,123 @@ merged_train_adv <- merge(train_adv, booktrain, by = 'id')
 adv_fit <- lm(logtarg ~ .-id, data = merged_train_adv)
 summary(adv_fit)
 ```
+
+### Generate csv for submission
+
+```{r}
+pred_adv <- predict(adv_fit, newdata = test_adv)
+predictions_adv <- data.frame(id = test_adv$id, yhat = pred_adv)
+write.csv(predictions_adv, file = 'adv.csv', row.names = FALSE)
+```
+
+
+
+## Cross validation
+
+### Naive model
+
+```{r}
+tctrl = trainControl(method = "cv", number = 10)
+mod_naive = train(logtarg ~ .-id, data = merged_train_naive, method = "lm", trControl = tctrl)
+mod_naive
+
+```
+
+
+### Advanced model
+```{r}
+tctrl = trainControl(method = "cv", number = 10)
+mod_adv = train(logtarg ~ .-id, data = merged_train_adv, method = "lm", trControl = tctrl)
+mod_adv
+```
+
+
+## Logistic Modeling
+
+```{r}
+merged_train_logistic <- mutate(merged_train_adv, 
+                                responded = ifelse(logtarg>0, 1, 0)) %>%
+    select(-logtarg)
+
+logfit <- glm(responded ~ .-id, data = merged_train_logistic, family = binomial)
+summary(logfit)
+```
+
+
+```{r}
+merged_train_linear <- filter(merged_train_adv, logtarg>0)
+ajit_fit <- lm(logtarg ~ .-id, data = merged_train_linear)
+summary(ajit_fit)
+```
+
+
+## Predcition using Ajit's models
+
+```{r}
+pred_linear_ajit <- predict(ajit_fit, newdata = test_adv)
+pred_logistic_ajit <- predict(logfit, newdata = test_adv, type="response")
+
+predictions_ajit <- data.frame(id = test_adv$id, 
+                               yhat = pred_linear_ajit*pred_logistic_ajit)
+write.csv(predictions_adv, file = 'ajit.csv', row.names = FALSE)
+```
+
+
+
+## Cross validation
+
+```{r}
+# set.seed(2018-1-16)
+
+equal0 <- filter(merged_train_adv, logtarg==0)
+greater0 <- filter(merged_train_adv, logtarg>0)
+
+equal0 <- equal0[sample(1:nrow(equal0)), ]
+greater0 <- greater0[sample(1:nrow(greater0)), ]
+
+erows <- nrow(equal0)/10
+grows <- nrow(greater0)/10
+
+results <- c()
+
+for(i in 0:9){
+    
+    equal_k <- equal0[-((floor(i*erows)+1):(floor((i+1)*erows))),]
+    greater_k <- greater0[-((floor(i*grows)+1):(floor((i+1)*grows))),]
+    
+    merged_k <- rbind(equal_k, greater_k)
+        
+        
+    merged_train_logistic_k <- mutate(merged_k, 
+                                responded = ifelse(logtarg>0, 1, 0)) %>% 
+        select(-logtarg)
+
+    logfit_k <- glm(responded ~ .-id, data = merged_train_logistic_k, 
+                    family = binomial)
+    
+    linear_k <- lm(logtarg ~ .-id, data = greater_k)
+    
+    test_equal_k <- equal0[(floor(i*erows)+1):(floor((i+1)*erows)),]
+    test_greater_k <- greater0[(floor(i*grows)+1):(floor((i+1)*grows)),]
+    test_merged_k <- rbind(test_equal_k, test_greater_k)
+    
+    pred_linear_k <- predict(linear_k, newdata = test_merged_k)
+    pred_logistic_k <- predict(logfit_k, newdata = test_merged_k, type="response")
+
+    predictions_k <- data.frame(id = test_merged_k$id, 
+                               yhat = pred_linear_k*pred_logistic_k)
+    
+    error_k <- sum((test_merged_k$logtarg-predictions_k$yhat)^2)/nrow(test_merged_k)
+    error_k <- sqrt(error_k)
+    
+    results <- c(results, error_k)
+}
+
+mean(results)
+```
+
+
+## Modified Ajit's method
 
 
 
