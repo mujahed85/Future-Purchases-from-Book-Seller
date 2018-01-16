@@ -14,6 +14,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Loading Libraries and data
 
 ```{r}
+setwd("F:/MSIA/Winter 2018/MSiA 421 - Data Mining/kaggle")
+
 library(dplyr)
 library(lubridate)
 library(ggplot2)
@@ -91,7 +93,7 @@ group_by(orders, id) %>% summarise(n = n_distinct(ordnum)) %>% arrange(desc(n))
 ```
 
 
-## naive model
+## Naive model
 
 ```{r}
 naive_df_train <- group_by(train, id) %>%
@@ -123,27 +125,110 @@ write.csv(predictions, file = 'naive.csv', row.names = FALSE)
 
 ## Feature creation
 
-total number of orders per id
+### Creating aggregated features
 
 ```{r}
-orders_ext <- orders
 
-orders_ext <- mutate(orders_ext, tot_orders = 
-                         group_by(orders_ext, id) %>% summarise(tot_orders = 
-                         n_distinct(ordnum)) %>% select(tot_orders))
-head(orders_ext)
+# total number of orders per id
 
+tot_orders_df <- group_by(orders, id) %>% summarise(tot_orders = 
+                         n_distinct(ordnum))
+
+# number of items purchased per order
+
+avg_items_df <- group_by(orders, id) %>% summarise(avg_items = sum(qty)) %>% 
+    mutate(avg_items = avg_items/tot_orders_df$tot_orders)
+
+# average price per order
+
+avg_price_df <- group_by(orders, id) %>% summarise(avg_price = sum(price)) %>%
+    mutate(avg_price = avg_price/tot_orders_df$tot_orders)
+
+
+# total number of categories purchased
+
+tot_cat_df <- group_by(orders, id) %>% summarise(tot_cat = n_distinct(category))
+```
+
+
+### Creating temporal features
+
+```{r}
+# first purchase date
+
+first_pur_df = group_by(orders, id) %>% summarise(first_pur = min(orddate))
+
+# last purchase date
+
+last_pur_df = group_by(orders, id) %>% summarise(last_pur = max(orddate))
+
+# total price of last purchase date
+
+last_tot_price_df = group_by(orders, id, orddate) %>% 
+    summarise(last_tot_price = sum(price)) %>% 
+    group_by(id) %>% 
+    filter(orddate == max(orddate)) %>% 
+    select(id, last_tot_price)
+```
+
+### Merging features into a dataframe
+
+```{r}
+
+# merging all features into temp df
+
+temp_df <- Reduce(function(x, y) merge(x, y, by = "id"), list(tot_orders_df, avg_items_df, avg_price_df, tot_cat_df, first_pur_df, last_pur_df, last_tot_price_df))
+
+# creating the following features
+# 1. the average time between orders
+# 2. activity defined as (lifetime - recency)/lifetime, which is the proportion of lifetime a customer was active
+# 3. last order weighted by price
+
+temp_df <- temp_df %>%
+    mutate(pur_time_avg = as.integer(last_pur - first_pur)/tot_orders) %>%
+    mutate(activity = as.integer(last_pur - first_pur)/
+               as.integer(as.Date("2014-08-01") - first_pur)) %>%
+    mutate(last_ord_wt = as.integer(as.Date("2014-08-01") - last_pur)*
+               last_tot_price)
+
+# removing last_tot_price now that we have created last_ord_wt
+
+temp_df <- select(temp_df, -last_tot_price)
+
+temp_df <- mutate(temp_df, last_pur = as.integer(last_pur), 
+                  first_pur = as.integer(first_pur))
+```
+
+### Adding back the naive features
+
+```{r}
+naive_features <- group_by(orders, id) %>%
+    summarise(tot_price = sum(price), tot_qty = sum(qty))
+
+
+temp_df <- merge(temp_df, naive_features, by = 'id')
 ```
 
 
 
+### Partition into train and test sets and merge with response
+
+```{r}
+train_adv <- filter(temp_df, id %in% booktrain$id)
+test_adv <- filter(temp_df, !(id %in% booktrain$id))
+
+
+merged_train_adv <- merge(train_adv, booktrain, by = 'id')
+```
 
 
 
+## Fitting the model
 
-
-
-
+```{r}
+adv_fit <- lm(logtarg ~ .-id, data = merged_train_adv)
+summary(adv_fit)
+```
 
 
 
