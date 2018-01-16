@@ -19,7 +19,7 @@ setwd("F:/MSIA/Winter 2018/MSiA 421 - Data Mining/kaggle")
 library(dplyr)
 library(lubridate)
 library(ggplot2)
-
+library(caret)
 orders <- read.csv("orders.csv")
 booktrain <- read.csv("booktrain.csv")
 ```
