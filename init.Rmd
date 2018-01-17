@@ -20,6 +20,7 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(caret)
+library(pROC)
 orders <- read.csv("orders.csv")
 booktrain <- read.csv("booktrain.csv")
 ```
@@ -315,6 +316,8 @@ predictions_ajit_train <- data.frame(id = merged_train_adv$id,
                                logtarg = merged_train_adv$logtarg)
 
 write.csv(predictions_ajit_train, file = 'ajit_training_predictions.csv', row.names = FALSE)
+
+p <- plot.roc(merged_train_logistic$responded, fitted(logfit), print.auc = TRUE)
 ```
 
 
