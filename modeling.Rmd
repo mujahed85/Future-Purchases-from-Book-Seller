@@ -28,8 +28,8 @@ library(glmnet)
 ```{r}
 orders <- read.csv("orders.csv")
 booktrain <- read.csv("booktrain.csv")
-merged_train_adv <- read.csv("merged_train_adv_no99.csv")
-test_adv <- read.csv("test_adv_no99.csv")
+merged_train_adv <- read.csv("merged_train_adv.csv")
+test_adv <- read.csv("test_adv.csv")
 head(merged_train_adv)
 ```
 
