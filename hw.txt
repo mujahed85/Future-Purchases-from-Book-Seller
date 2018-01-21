@@ -1,0 +1,12 @@
+Team Name:
+DataRobots
+
+Members:
+Rishabh Joshi
+Daniel Lutolf-Carroll
+
+
+Files:
+data_cleaning.Rmd (main data cleaning and setup)
+modeling.Rmd (first wave of models and cross validations)
+xgb4.Rmd (second wave of models using random forests)
