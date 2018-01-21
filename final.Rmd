@@ -1,0 +1,228 @@
+---
+title: "Fresh Start"
+author: "Rush"
+date: "January 17, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading Libraries and data
+
+```{r}
+setwd("F:/MSIA/Winter 2018/MSiA 421 - Data Mining/kaggle")
+
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(caret)
+library(pROC)
+library(glmnet)
+```
+
+
+```{r}
+orders <- read.csv("orders.csv")
+booktrain <- read.csv("booktrain.csv")
+merged_train_adv <- read.csv("merged_train_adv_no99.csv")
+test_adv <- read.csv("test_adv_no99.csv")
+head(merged_train_adv)
+```
+
+
+# Simple Linear Regression
+
+```{r}
+set.seed(2018-01-20)
+tctrl <- trainControl(method = "cv", number = 10)
+linear <- train(logtarg ~ .-id-tot_price-tot_qty, data = merged_train_adv, method = "lm", trControl = tctrl)
+linear
+```
+
+**RMSE = `r linear$results["RMSE"]`**
+
+
+# Linear Regression with all possible interactions
+
+
+### Choosing the significant interactions among all possible with lasso
+
+```{r}
+all_mat <- model.matrix(logtarg ~ (.-id)^2-1, data = merged_train_adv)
+
+linear_lasso <- cv.glmnet(all_mat, merged_train_adv$logtarg, alpha=1, 
+                     nfold=10, lambda=seq(0,10,0.01))
+
+lambdalasso <- lassocv$lambda.min
+
+print(lambdalasso)
+
+plot(lassocv)
+
+small.lambda.index <- which(lassocv$lambda == lassocv$lambda.min)
+small.lambda.betas <- coef(lassocv$glmnet.fit)[,small.lambda.index]
+print(small.lambda.betas)
+
+plot(lassofit,xvar="lambda",label=TRUE, main="Coeffs of Lasso Regression", type="l", xlab=expression("log_lambda"), ylab="Coeff")
+abline(h=0); 
+abline(v=log(lassocv$lambda.min))
+
+names(which(small.lambda.betas==0))
+```
+
+Lasso doesnt give good results. It fails to remove any of the predictors.
+
+### Choosing the significant interactions among all possible with forward stepwise regression
+
+```{r}
+linear_base <- lm(logtarg ~ 1, data = merged_train_adv)
+biggest <- formula(lm(logtarg ~ (.-id)^2, data = merged_train_adv))
+linear_fwd <- step(linear_base, direction = "both", scope = biggest)
+```
+
+Removing the most non significant predictor `activity` and doing backwards again,
+
+```{r}
+# removing activity and creating the new formula to pass to the model
+frm <- as.formula(paste0(Reduce(paste0, deparse(formula(linear_fwd))), " - activity - slstyr - last_pur - ordlyr"))
+
+linear_step_refined <- step(lm(frm, data = merged_train_adv), direction = "both")
+
+summary(linear_step_refined)
+```
+
+
+#### Getting the cross validated 
+
+Using the formula for forward stepwise to get cross validation results
+
+```{r}
+set.seed(2018-01-20)
+linear_fwd_cv <- train(formula(linear_step_refined), data = merged_train_adv, method = "lm", trControl = tctrl)
+linear_fwd_cv
+```
+
+**RMSE = `r linear_fwd_cv$results["RMSE"]`**
+
+
+
+# Logistic Regression
+
+## Simple logistic regression
+
+```{r}
+set.seed(2018-01-20)
+
+merged_train_logistic <- mutate(merged_train_adv, 
+                                responded = as.factor(ifelse(logtarg>0, 1, 0))) %>% 
+    select(-logtarg)
+
+levels(merged_train_logistic$responded) <- c("no", "yes")
+
+tctrl_logistic <- trainControl(method = "cv", number = 10, classProbs = TRUE, 
+                      summaryFunction = twoClassSummary)
+
+logistic <- train(responded ~ .-id-tot_price-tot_qty, data = merged_train_logistic,
+                method = "glm", family = binomial, trControl = tctrl_logistic, 
+                metric = "ROC", maximize = TRUE)
+logistic
+```
+
+
+**AUC = `r logistic$results['ROC']`**
+
+## Logistic with all possible interactions
+
+
+```{r}
+
+
+logistic_base <- glm(responded ~ 1, data = merged_train_logistic, family = binomial)
+
+biggest_logistic <- formula(glm(responded ~ (.-id)^2, 
+                                data = merged_train_logistic, family = binomial))
+
+logistic_fwd <- step(logistic_base, direction = "both", scope = biggest_logistic)
+
+summary(logistic_fwd)
+```
+
+
+### Cross validation on logistic regression
+
+```{r}
+set.seed(2018-01-20)
+logistic_fwd_cv <- train(formula(logistic_fwd), data = merged_train_logistic,
+                method = "glm", family = binomial, trControl = tctrl_logistic, 
+                metric = "ROC", maximize = TRUE)
+logistic_fwd_cv
+```
+
+**AUC = `r logistic_fwd_cv$results['ROC']`**
+
+This gave a better AUC than before.
+
+
+# Linear model on only `responded = TRUE`
+
+## Simple linear model
+
+```{r}
+merged_train_linear <- filter(merged_train_adv, logtarg>0)
+set.seed(2018-01-20)
+tctrl <- trainControl(method = "cv", number = 10)
+linear2 <- train(logtarg ~ .-id-tot_price-tot_qty, data = merged_train_linear, method = "lm", trControl = tctrl)
+linear2
+```
+
+
+## Linear model with all interactions
+
+```{r}
+linear_base <- lm(logtarg ~ 1, data = merged_train_adv)
+biggest <- formula(lm(logtarg ~ (.-id)^2, data = merged_train_linear))
+linear_fwd <- step(linear_base, direction = "both", scope = biggest)
+summary(linear_fwd)
+```
+
+We find that the linear model trained on the subset of the data picks the same features as the one trained on the entire training data.
+
+```{r}
+set.seed(2018-01-20)
+linear2_fwd_cv <- train(formula(linear_step_refined), data = merged_train_linear,
+                        method = "lm", trControl = tctrl)
+linear2_fwd_cv
+```
+
+
+# Making predictions
+
+## With only linear with all possible interactions
+
+```{r}
+pred_linear <- predict(linear_fwd_cv, test_adv)
+write.csv(data.frame(id = test_adv$id, yhat = pred_linear),
+          "only_linear_regression.csv", row.names = FALSE)
+```
+
+## With logistic plus linear
+
+```{r}
+pred_logistic <- predict(logistic_fwd, test_adv, type = "response")
+
+pred_linear2 <- predict(linear2_fwd_cv, test_adv)
+
+# imposing a hard threshold on the linear model
+
+pred_linear2 <- ifelse(pred_linear2>20, 20, pred_linear2)
+
+pred_linear2 <- ifelse(pred_linear2<0, 0, pred_linear2)
+
+write.csv(data.frame(id = test_adv$id, yhat = pred_logistic * pred_linear2),
+          "linear_plus_logistic_thresh_no99.csv", row.names = FALSE)
+```
+
