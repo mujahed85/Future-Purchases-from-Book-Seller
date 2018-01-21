@@ -1,0 +1,104 @@
+---
+title: "xgb"
+output: html_document
+---
+
+```{r}
+library(xgboost)
+train <- read.csv("merged_train_adv_new.csv")
+test <- read.csv("test_adv_new.csv")
+```
+
+```{r}
+param_log <- list(objective = "binary:logistic",
+          eval_metric = "auc",
+          max_depth = 5,
+          eta = 0.1,
+          gamma = 0.1, 
+          subsample = 0.8,
+          colsample_bytree = 0.8, 
+          min_child_weight = 1,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+```
+
+
+```{r}
+frm_log <- as.formula("logtarg ~ slstyr + last_pur + slslyr + ordbfr + ordtyr + tot_orders + 
+    first_pur + tot_cat + activity + ordlyr + last_pur:slslyr + 
+           slstyr:ordtyr + ordbfr:tot_cat + slstyr:tot_cat + ordtyr:activity + 
+           ordtyr:first_pur + tot_cat:ordlyr + tot_orders:activity + 
+           slstyr:activity - activity - slstyr - last_pur - ordlyr")
+
+dftrain_log = model.matrix(frm_log, data = train)
+
+#dftrain_log = as.matrix(train[,-c(1,20,21,22)])
+logtarg_convert = ifelse((train$logtarg > 0), 1, 0)
+
+dtrain_log <- xgb.DMatrix(data = dftrain_log, label=as.matrix(logtarg_convert))
+dtest <- xgb.DMatrix(data = dftest)
+
+watchlist <- list(train=dtrain_log)
+bst_log <- xgb.train(data=dtrain_log, params = param_log, nthread = 7, nround=100, watchlist=watchlist)
+```
+
+
+```{r}
+pred <- predict(bst_log, dtrain_log)
+pred_test <- predict(bst_log, dtest)
+```
+
+
+```{r}
+param_lin <- list(objective = "reg:linear",
+          eval_metric = "rmse",
+          max_depth = 5,
+          eta = 0.1,
+          gamma = 0.1, 
+          subsample = 0.8,
+          colsample_bytree = 0.8, 
+          min_child_weight = 1,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+```
+
+
+```{r}
+frm_lin <- as.formula("logtarg ~ slstyr + last_pur + slslyr + ordbfr + ordtyr + tot_orders + 
+    first_pur + tot_cat + activity + ordlyr + last_pur:slslyr + 
+           slstyr:ordtyr + ordbfr:tot_cat + slstyr:tot_cat + ordtyr:activity + 
+           ordtyr:first_pur + tot_cat:ordlyr + tot_orders:activity + 
+           slstyr:activity - activity - slstyr - last_pur - ordlyr")
+
+train_nonzero = train[train$logtarg > 0,]
+dftrain_lin = model.matrix(frm_lin, data = train_nonzero)
+dftrain_ori = model.matrix(frm_lin, data = train)
+
+dtrain_lin <- xgb.DMatrix(data = dftrain_lin, label=as.matrix(train_nonzero$logtarg))
+dtrain_original <- xgb.DMatrix(data = dftrain_ori, label=as.matrix(train$logtarg))
+#dtest <- xgb.DMatrix(data = dftest)
+
+watchlist2 <- list(train=dtrain_lin)
+bst_lin <- xgb.train(data=dtrain_lin, params = param_lin, nthread = 7, nround=100, watchlist=watchlist2)
+```
+
+
+```{r}
+pred2 <- predict(bst_lin, dtrain_original)
+pred2_test <- predict(bst_lin, dtest)
+```
+
+
+```{r}
+product <- pred * pred2
+product_test <- pred_test * pred2_test
+df_output_train = data.frame(train, yhat = product, prob = pred, estimate = pred2)
+df_output_test = data.frame(test, yhat = product_test, prob = pred_test, estimate = pred2_test)
+df_output_final = data.frame(id = test$id, yhat = product_test)
+write.csv(df_output_train, "xgb_check2.csv", row.names = F)
+write.csv(df_output_test, "xgb_test2.csv", row.names = F)
+write.csv(df_output_final, "xgb_final2.csv", row.names = F)
+```
+

@@ -1,0 +1,227 @@
+---
+title: "xgb"
+author: "Daniel & Rush (DataRobots)"
+output: html_document
+---
+
+Loading libraries
+```{r}
+library(xgboost)
+library(data.table)
+library(mlr)
+train <- read.csv("merged_train_adv_new.csv")
+test <- read.csv("test_adv_new.csv")
+```
+Loading parallelization to speed up tuning
+```{r}
+library(parallel)
+library(parallelMap)
+parallelStartSocket(cpus = detectCores())
+
+```
+
+Default params
+```{r}
+param_log <- list(objective = "binary:logistic",
+          eval_metric = "auc",
+          max_depth = 6,
+          eta = 0.3,
+          gamma = 0, 
+          subsample = 0.8,
+          colsample_bytree = 0.8, 
+          min_child_weight = 1,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+```
+
+
+```{r}
+#frm_log <- as.formula("logtarg ~ last_pur + ordtyr + activity + pur_time_avg + slsbfr")
+
+frm_log <- as.formula("logtarg ~ .-id")
+
+dftrain_log = model.matrix(frm_log, data = train)
+
+#dftrain_log = as.matrix(train[,-c(1,20,21,22)])
+logtarg_convert = ifelse((train$logtarg > 0), 1, 0)
+
+dtrain_log <- xgb.DMatrix(data = dftrain_log, label=as.matrix(logtarg_convert))
+
+dftest = as.matrix(test[,-1])
+dtest <- xgb.DMatrix(data = dftest)
+
+watchlist <- list(train=dtrain_log)
+#set.seed(2018-1-20)
+bst_log <- xgb.cv(data=dtrain_log, params = param_log, nfold = 10, nrounds = 100, showsd = T, stratified = T, print_every_n = 1, early_stopping_rounds = 20)
+```
+```{r}
+lrn <- makeLearner("classif.xgboost",predict.type = "response")
+lrn$par.vals <- list( objective="binary:logistic", eval_metric="error", nrounds=10, eta=0.1)
+
+todo_params_log <- makeParamSet( makeDiscreteParam("booster",values = c("gbtree")), makeIntegerParam("max_depth",lower = 3L,upper = 10L), makeNumericParam("min_child_weight",lower = 1L,upper = 10L), makeNumericParam("gamma",lower = 0,upper = 0.5), makeNumericParam("subsample",lower = 0.5,upper = 1), makeNumericParam("colsample_bytree",lower = 0.5,upper = 1), makeNumericParam("eta",lower = 0.1,upper = 0.9))
+
+rdesc <- makeResampleDesc("CV",stratify = T,iters=10L)
+ctrl <- makeTuneControlRandom(maxit = 300L)
+```
+
+
+```{r}
+taskdf_log = as.data.frame(dftrain_log)
+taskdf_log$logtarg = as.factor(ifelse((train$logtarg > 0), 1, 0))
+colnames(taskdf_log) = make.names(colnames(taskdf_log))
+
+traintask_log<- makeClassifTask(data = taskdf_log, target = "logtarg")
+mytune_log <- tuneParams(learner = lrn, task = traintask_log, resampling = rdesc, measures = acc, par.set = todo_params_log, control = ctrl, show.info = T)
+```
+
+
+
+
+
+```{r}
+lrn_tune <- setHyperPars(lrn,par.vals = mytune_log$x)
+#lrn_tune$par.vals$eta=1
+xgmodel_log <- train(learner = lrn_tune, task = traintask)
+```
+
+```{r}
+tuned_param_log <- list(objective = "binary:logistic",
+          eval_metric = "error",
+          eval_metric = "auc",
+          max_depth = 4,
+          eta = 0.143,
+          gamma = 0.444, 
+          subsample = 0.709,
+          colsample_bytree = 0.937, 
+          min_child_weight = 2,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+#set.seed(2018-1-20)
+bst_log_cvchecked <- xgb.cv(data=dtrain_log, params = tuned_param_log, nfold = 10, nrounds = 100, showsd = T, stratified = T, print_every_n = 1, early_stopping_rounds = 20)
+
+```
+
+
+```{r}
+bst_log_final <- xgb.train(data=dtrain_log, params = tuned_param_log, nthread = 7, nround=10, print_every_n = 1)
+mat <- xgb.importance (feature_names = colnames(dtrain_log), model = bst_log_final)
+xgb.plot.importance (importance_matrix = mat[1:20])
+```
+
+
+```{r}
+pred <- predict(bst_log_final, dtrain_log)
+pred_test <- predict(bst_log_final, dtest)
+```
+
+
+```{r}
+param_lin <- list(objective = "reg:linear",
+          eval_metric = "rmse",
+          max_depth = 6,
+          eta = 0.3,
+          gamma = 0, 
+          subsample = 0.8,
+          colsample_bytree = 0.8, 
+          min_child_weight = 1,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+```
+
+
+```{r}
+
+# frm_lin <- as.formula("logtarg ~ -1 + slstyr + last_pur + slslyr + ordbfr + ordtyr + tot_orders + 
+#     first_pur + tot_cat + activity + ordlyr + last_pur:slslyr + 
+#            slstyr:ordtyr + ordbfr:tot_cat + slstyr:tot_cat + ordtyr:activity + 
+#            ordtyr:first_pur + tot_cat:ordlyr + tot_orders:activity + 
+#            slstyr:activity - activity - slstyr - last_pur - ordlyr")
+
+
+frm_lin <- as.formula("logtarg ~ .-id")
+
+train_nonzero = train[train$logtarg > 0,]
+dftrain_lin = model.matrix(frm_lin, data = train_nonzero)
+dftrain_ori = model.matrix(frm_lin, data = train)
+
+dtrain_lin <- xgb.DMatrix(data = dftrain_lin, label=as.matrix(train_nonzero$logtarg))
+dtrain_original <- xgb.DMatrix(data = dftrain_ori, label=as.matrix(train$logtarg))
+#dtest <- xgb.DMatrix(data = dftest)
+
+watchlist2 <- list(train=dtrain_lin)
+set.seed(2018-1-20)
+bst_lin <- xgb.cv(data=dtrain_lin, params = param_lin, nfold = 10, nrounds=100, showsd = T, stratified = T, print_every_n = 1, early_stopping_rounds = 20)
+
+```
+
+```{r}
+lrn2 <- makeLearner("regr.xgboost",predict.type = "response")
+lrn2$par.vals <- list( objective="reg:linear", eval_metric="rmse", nrounds=10, eta=0.1)
+
+todo_params_lin <- makeParamSet( makeDiscreteParam("booster",values = c("gbtree")), makeIntegerParam("max_depth",lower = 3L,upper = 10L), makeNumericParam("min_child_weight",lower = 1L,upper = 10L), makeNumericParam("gamma",lower = 0,upper = 0.5), makeNumericParam("subsample",lower = 0.5,upper = 1), makeNumericParam("colsample_bytree",lower = 0.5,upper = 1), makeNumericParam("eta",lower = 0.1,upper = 0.9))
+
+rdesc2 <- makeResampleDesc("CV",stratify = F, iters=10L)
+ctrl2 <- makeTuneControlRandom(maxit = 300L)
+```
+
+```{r}
+taskdf_lin = as.data.frame(dftrain_lin)
+taskdf_lin$logtarg = train_nonzero$logtarg
+#taskdf_lin$logtarg = as.factor(ifelse((train$logtarg > 0), 1, 0))
+colnames(taskdf_lin) = make.names(colnames(taskdf_lin))
+
+traintask_lin <- makeRegrTask(data = taskdf_lin, target = "logtarg")
+mytune_lin <- tuneParams(learner = lrn2, task = traintask_lin, resampling = rdesc2, measures = rmse, par.set = todo_params_lin, control = ctrl2, show.info = T)
+```
+
+```{r}
+lrn_tune2 <- setHyperPars(lrn2 ,par.vals = mytune_lin$x)
+#lrn_tune$par.vals$eta=1
+xgmodel_lin <- train(learner = lrn_tune2, task = traintask_lin)
+```
+
+```{r}
+tuned_param_lin <- list(objective = "reg:linear",
+          eval_metric = "rmse",
+          max_depth = 5,
+          eta = 0.73,
+          gamma = 0.455, 
+          subsample = 0.578,
+          colsample_bytree = 0.838, 
+          min_child_weight = 6.76,
+          max_delta_step = 5,
+          scale_pos_weight = 1
+          )
+#set.seed(2018-1-20)
+bst_lin_cvchecked <- xgb.cv(data=dtrain_lin, params = tuned_param_lin, nfold = 10, nrounds = 100, showsd = T, stratified = T, print_every_n = 1, early_stopping_rounds = 20)
+
+```
+
+```{r}
+bst_lin_final <- xgb.train(data=dtrain_lin, params = tuned_param_lin, nthread = 7, nround=10, print_every_n = 1)
+mat <- xgb.importance (feature_names = colnames(dtrain_lin), model = bst_lin_final)
+xgb.plot.importance (importance_matrix = mat[1:20])
+```
+
+
+
+```{r}
+pred2 <- predict(bst_lin_final, dtrain_original)
+pred2_test <- predict(bst_lin_final, dtest)
+```
+
+
+```{r}
+product <- pred * pred2
+product_test <- pred_test * pred2_test
+df_output_train = data.frame(train, yhat = product, prob = pred, estimate = pred2)
+df_output_test = data.frame(test, yhat = product_test, prob = pred_test, estimate = pred2_test)
+df_output_final = data.frame(id = test$id, yhat = product_test)
+write.csv(df_output_train, "xgb_check2.csv", row.names = F)
+write.csv(df_output_test, "xgb_test2.csv", row.names = F)
+write.csv(df_output_final, "xgb_final2.csv", row.names = F)
+```
+
